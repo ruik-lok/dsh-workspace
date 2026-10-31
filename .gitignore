@@ -1,0 +1,6 @@
+_tmp/
+_installers/
+*.exe
+*.msi
+*.zip
+*.log
