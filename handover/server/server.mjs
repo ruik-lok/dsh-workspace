@@ -425,6 +425,51 @@ http.createServer(async (req, res) => {
     }
 
 
+    // 手机 dsh 的启停控制：经隧道转发到手机网关（任何装了 App 的设备都能用）
+    if (p === '/api/phone/start' || p === '/api/phone/stop' || p === '/api/phone/restart') {
+      const action = p.split('/').pop();
+      try {
+        const r = await fetch('http://127.0.0.1:18090/admin/' + action + '?key=***已打码***', { signal: AbortSignal.timeout(8000) });
+        const t = await r.text();
+        return json(res, r.ok ? 200 : 502, { ok: r.ok, action, upstream: t.slice(0, 300) });
+      } catch (e) {
+        return json(res, 502, { ok: false, error: String((e && e.message) || e) });
+      }
+    }
+
+    if (p === '/api/phone/status') {
+      try {
+        const r = await fetch('http://127.0.0.1:18090/admin/restart/status', { signal: AbortSignal.timeout(5000) });
+        const t = await r.text();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(t);
+      } catch (e) {
+        return json(res, 200, { phase: 'unknown', error: String((e && e.message) || e) });
+      }
+    }
+
+    // 远程重启手机端的 dsh：服务器经隧道转发到手机网关（任何装了 App 的设备都能用）
+    if (p === '/api/restart-phone') {
+      try {
+        const r = await fetch('http://127.0.0.1:18090/admin/restart?key=***已打码***', { signal: AbortSignal.timeout(8000) });
+        const t = await r.text();
+        return json(res, r.ok ? 200 : 502, { ok: r.ok, upstream: t.slice(0, 300) });
+      } catch (e) {
+        return json(res, 502, { ok: false, error: String((e && e.message) || e) });
+      }
+    }
+
+    if (p === '/api/restart-phone/status') {
+      try {
+        const r = await fetch('http://127.0.0.1:18090/admin/restart/status', { signal: AbortSignal.timeout(5000) });
+        const t = await r.text();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(t);
+      } catch (e) {
+        return json(res, 200, { phase: 'unknown', error: String((e && e.message) || e) });
+      }
+    }
+
     if (p === '/api/app') {
       let v = { versionCode: 0, versionName: '', apk: 'https://saisqi.xyz/g', notes: '' };
       try { v = Object.assign(v, JSON.parse(readFileSync('/root/apk/panel/version.json', 'utf8'))); } catch {}

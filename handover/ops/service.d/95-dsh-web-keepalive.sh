@@ -1,9 +1,11 @@
 #!/system/bin/sh
-# DSH 常驻：挪出可冻结 cgroup + 降 oom + wakelock + 无响应自动重启
+# DSH 常驻：cgroup 迁移 + oom + wakelock + 息屏空闲自动停止 + 崩溃拉起
 BASE=/data/user/0/com.deepseek.harness/files
 LOG=/data/local/tmp/dsh-web-keepalive.log
 PKG=com.deepseek.harness
-FLAG_NOWAKE=/data/local/tmp/dsh-web-nowake
+NOWAKE=/data/local/tmp/dsh-web-nowake
+STOP_FLAG=/data/local/tmp/dsh-stopped
+IDLE_LIMIT_FILE=/data/local/tmp/dsh-autostop-minutes
 export LD_LIBRARY_PATH=$BASE/payload/runtime/lib
 CURL=$BASE/payload/runtime/bin/curl
 log() { echo "$(date '+%m-%d %H:%M:%S') $*" >> "$LOG"; }
@@ -12,16 +14,14 @@ move_out() {
   for p in "$@"; do
     [ -d /proc/$p ] || continue
     cg=$(grep '^0::' /proc/$p/cgroup 2>/dev/null | cut -d: -f3)
-    case "$cg" in
-      /system|"") ;;
-      *) echo $p > /sys/fs/cgroup/system/cgroup.procs 2>/dev/null ;;
-    esac
+    case "$cg" in /system|"") ;; *) echo $p > /sys/fs/cgroup/system/cgroup.procs 2>/dev/null ;; esac
   done
 }
 
 log "keepalive start pid=$$"
 sleep 15
-fail=0
+dumpsys deviceidle disable >/dev/null 2>&1 && log "doze disabled"
+down=0
 tick=0
 while :; do
   move_out $(pidof $PKG 2>/dev/null)
@@ -36,7 +36,7 @@ while :; do
     [ "$(cat /proc/$p/oom_score_adj 2>/dev/null)" != "-900" ] && echo -900 > /proc/$p/oom_score_adj 2>/dev/null
   done
 
-  if [ ! -f "$FLAG_NOWAKE" ]; then
+  if [ ! -f "$NOWAKE" ]; then
     case "$(cat /sys/power/wake_lock 2>/dev/null)" in
       *dshweb*) ;;
       *) echo dshweb > /sys/power/wake_lock 2>/dev/null && log "wakelock on" ;;
@@ -44,19 +44,43 @@ while :; do
   fi
 
   tick=$((tick+1))
-  if [ $((tick % 5)) -eq 0 ]; then
-    code=$($CURL -s -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:3080/ 2>/dev/null)
-    case "$code" in
-      000|"") fail=$((fail+1)) ;;
-      *) fail=0 ;;
-    esac
-    if [ "$fail" -ge 3 ]; then
-      log "dsh 3080 无响应 -> 重启"
-      am force-stop $PKG
-      sleep 2
-      am start -n $PKG/.MainActivity >/dev/null 2>&1
-      log "已重新拉起"
-      fail=0
+  # dsh 已主动停止时，不再做链路保活，进一步省电
+  if [ ! -f "$STOP_FLAG" ]; then
+    if [ $((tick % 10)) -eq 0 ]; then
+      ping -c 1 -W 1 223.5.5.5 >/dev/null 2>&1
+    fi
+    if [ $((tick % 30)) -eq 0 ]; then
+      case "$(iw dev wlan0 get power_save 2>/dev/null)" in
+        *"on"*) iw dev wlan0 set power_save off 2>/dev/null && log "wifi power_save off" ;;
+      esac
+    fi
+  fi
+  if [ $((tick % 15)) -eq 0 ]; then
+    asleep=0
+    dumpsys power 2>/dev/null | grep -qE "mWakefulness=(Asleep|Dozing)" && asleep=1
+    if [ "$asleep" = "1" ] && [ ! -f "$STOP_FLAG" ]; then
+      idle=$($CURL -s -m 3 http://127.0.0.1:3099/admin/device 2>/dev/null | sed -n "s/.*\"idleSec\":\([0-9]*\).*/\1/p")
+      [ -z "$idle" ] && idle=0
+      limit=$(cat "$IDLE_LIMIT_FILE" 2>/dev/null || echo 30)
+      if [ "$idle" -ge $((limit * 60)) ]; then
+        log "息屏且 $idle 秒无外部访问，自动停止 dsh"
+        touch "$STOP_FLAG"
+        am force-stop $PKG
+      fi
+    fi
+  fi
+
+  if [ $((tick % 5)) -eq 0 ] && [ ! -f "$STOP_FLAG" ]; then
+    if dumpsys activity services $PKG 2>/dev/null | grep -q EngineService; then
+      down=0
+    else
+      down=$((down+1))
+      log "engine missing ($down)"
+      if [ "$down" -ge 2 ]; then
+        log "relaunch app"
+        am start -n $PKG/.MainActivity >/dev/null 2>&1
+        down=0
+      fi
     fi
   fi
   sleep 2
