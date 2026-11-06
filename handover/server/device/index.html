@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>手机控制台</title>
+<style>
+  :root{--bg:#f3f5f9;--card:#fff;--ink:#1f2430;--muted:#8a93a6;--line:#e8ecf3;--blue:#1890ff;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:14px 12px 28px}
+  .hd{display:flex;align-items:center;gap:10px;margin:2px 2px 14px}
+  .hd h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.3px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(34,197,94,.15)}
+  .dot.bad{background:var(--red);box-shadow:0 0 0 4px rgba(239,68,68,.15)}
+  .sub{color:var(--muted);font-size:12px;margin-left:auto;text-align:right}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .card{background:var(--card);border-radius:14px;padding:14px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 6px 18px rgba(16,24,40,.05)}
+  .card.wide{grid-column:1/-1}
+  .lbl{color:var(--muted);font-size:12px;letter-spacing:.4px}
+  .ring{position:relative;width:96px;height:96px;margin:6px auto 2px}
+  .ring svg{transform:rotate(-90deg)}
+  .ring .num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700}
+  .kv{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:6px}
+  .big{font-size:24px;font-weight:700;margin:2px 0}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  canvas{width:100%;height:64px;display:block;margin-top:8px}
+  .tag{font-size:11px;padding:2px 8px;border-radius:999px;background:#eef4ff;color:#1d63d8}
+  .tag.ok{background:#eafaf0;color:#0f8a44}
+  .tag.bad{background:#fdecec;color:#c22}
+</style>
+</head>
+<body>
+<div class="hd">
+  <span class="dot" id="dot"></span>
+  <h1>手机控制台</h1>
+  <div class="sub"><span id="model">—</span><br><span id="tick">—</span></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="lbl">CPU</div>
+    <div class="ring"><svg width="96" height="96"><circle cx="48" cy="48" r="40" stroke="#eef1f6" stroke-width="10" fill="none"/><circle id="cpuArc" cx="48" cy="48" r="40" stroke="#1890ff" stroke-width="10" fill="none" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="251"/></svg><div class="num" id="cpuNum">—</div></div>
+    <div class="kv"><span>负载</span><span id="load">—</span></div>
+  </div>
+  <div class="card">
+    <div class="lbl">内存</div>
+    <div class="ring"><svg width="96" height="96"><circle cx="48" cy="48" r="40" stroke="#eef1f6" stroke-width="10" fill="none"/><circle id="memArc" cx="48" cy="48" r="40" stroke="#22c55e" stroke-width="10" fill="none" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="251"/></svg><div class="num" id="memNum">—</div></div>
+    <div class="kv"><span id="memUsed">—</span><span id="memTotal">—</span></div>
+  </div>
+  <div class="card">
+    <div class="lbl">存储</div>
+    <div class="ring"><svg width="96" height="96"><circle cx="48" cy="48" r="40" stroke="#eef1f6" stroke-width="10" fill="none"/><circle id="diskArc" cx="48" cy="48" r="40" stroke="#f59e0b" stroke-width="10" fill="none" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="251"/></svg><div class="num" id="diskNum">—</div></div>
+    <div class="kv"><span id="diskUsed">—</span><span id="diskTotal">—</span></div>
+  </div>
+  <div class="card">
+    <div class="lbl">电量</div>
+    <div class="ring"><svg width="96" height="96"><circle cx="48" cy="48" r="40" stroke="#eef1f6" stroke-width="10" fill="none"/><circle id="batArc" cx="48" cy="48" r="40" stroke="#8b5cf6" stroke-width="10" fill="none" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="251"/></svg><div class="num" id="batNum">—</div></div>
+    <div class="kv"><span id="temp">—</span><span id="charging">—</span></div>
+  </div>
+
+  <div class="card wide">
+    <div class="lbl">CPU 走势</div>
+    <canvas id="chart" width="640" height="128"></canvas>
+  </div>
+
+  <div class="card wide">
+    <div class="row"><span class="lbl">网络</span><span id="net">—</span></div>
+    <div class="row"><span class="lbl">运行时长</span><span id="up">—</span></div>
+    <div class="row"><span class="lbl">DSH 服务</span><span id="dsh" class="tag">—</span></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const hist = [];
+const C = 251;
+
+function arc(el, pct, color) {
+  el.setAttribute("stroke", color);
+  el.setAttribute("stroke-dashoffset", String(Math.max(0, C - C * Math.min(100, Math.max(0, pct)) / 100)));
+}
+function gb(b) { return (b / 1073741824).toFixed(1) + " GB"; }
+function pct(a, b) { return b > 0 ? Math.round(a * 100 / b) : 0; }
+
+function draw() {
+  const cv = $("chart"), ctx = cv.getContext("2d");
+  const w = cv.width, h = cv.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = "#eef1f6"; ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) { const y = h * i / 4; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  if (hist.length < 2) return;
+  ctx.beginPath();
+  hist.forEach((v, i) => {
+    const x = i * (w / Math.max(1, hist.length - 1));
+    const y = h - (Math.min(100, Math.max(0, v)) / 100) * (h - 6) - 3;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.strokeStyle = "#1890ff"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, "rgba(24,144,255,.22)"); g.addColorStop(1, "rgba(24,144,255,0)");
+  ctx.fillStyle = g; ctx.fill();
+}
+
+async function tick() {
+  try {
+    const r = await fetch("/dev-8f3a2c7d1e/api?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    $("dot").className = "dot";
+    $("model").textContent = "PJV110 · " + (d.cores || "?") + " 核";
+    $("tick").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+
+    const cpu = d.cpu < 0 ? 0 : d.cpu;
+    $("cpuNum").textContent = cpu + "%";
+    arc($("cpuArc"), cpu, cpu > 80 ? "#ef4444" : "#1890ff");
+    $("load").textContent = d.load || "—";
+
+    const memUsed = d.memTotal - d.memAvail;
+    $("memNum").textContent = pct(memUsed, d.memTotal) + "%";
+    arc($("memArc"), pct(memUsed, d.memTotal), "#22c55e");
+    $("memUsed").textContent = gb(memUsed);
+    $("memTotal").textContent = gb(d.memTotal);
+
+    const diskUsed = d.diskTotal - d.diskFree;
+    $("diskNum").textContent = pct(diskUsed, d.diskTotal) + "%";
+    arc($("diskArc"), pct(diskUsed, d.diskTotal), "#f59e0b");
+    $("diskUsed").textContent = gb(diskUsed);
+    $("diskTotal").textContent = gb(d.diskTotal);
+
+    $("batNum").textContent = d.battery + "%";
+    arc($("batArc"), d.battery, "#8b5cf6");
+    $("temp").textContent = d.temp > 0 ? d.temp.toFixed(1) + "°C" : "—";
+    $("charging").textContent = d.charging === "Charging" ? "充电中" : (d.charging === "Full" ? "已充满" : "放电中");
+
+    $("net").textContent = "↓ " + (d.netRx / 1024).toFixed(0) + " KB/s · ↑ " + (d.netTx / 1024).toFixed(0) + " KB/s";
+    const s = Math.floor(d.uptime || 0);
+    $("up").textContent = Math.floor(s / 86400) + " 天 " + Math.floor(s % 86400 / 3600) + " 小时 " + Math.floor(s % 3600 / 60) + " 分";
+    $("dsh").textContent = d.dsh ? "运行中" : "已停止";
+    $("dsh").className = "tag " + (d.dsh ? "ok" : "bad");
+
+    hist.push(cpu);
+    if (hist.length > 60) hist.shift();
+    draw();
+  } catch (e) {
+    $("dot").className = "dot bad";
+    $("tick").textContent = "连接失败";
+  }
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

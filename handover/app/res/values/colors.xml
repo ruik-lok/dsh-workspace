@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#F5F8FD</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface2">#EDF2F9</color>
+    <color name="ink">#0F172A</color>
+    <color name="muted">#64748B</color>
+    <color name="line">#E2E8F0</color>
+    <color name="accent">#2563EB</color>
+    <color name="ok">#16A34A</color>
+    <color name="bad">#DC2626</color>
+    <color name="navid">#0F172A</color>
+    <color name="icon_bg">#2563EB</color>
+    <color name="dock_bg">#FFFFFF</color>
+    <color name="dock_on">#2563EB</color>
+    <color name="dock_off">#7A86A0</color>
+    <color name="dock_line">#142563EB</color>
+</resources>
